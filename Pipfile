@@ -12,6 +12,8 @@ flask-cors = "*"
 python-dotenv = "*"
 psycopg2-binary = "*"
 flask-jwt-extended = "*"
+docusign-esign = "*"
+
 [dev-packages]
 
 [requires]

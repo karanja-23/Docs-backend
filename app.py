@@ -1,19 +1,100 @@
 from models import db, Documents
+from docusign_esign import ApiClient, EnvelopesApi, EnvelopeDefinition, Document, Signer, SignHere, Recipients, Tabs, RecipientViewRequest
 from flask_migrate import Migrate
+from docusign_esign.client.api_exception import ApiException
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import os
-app=Flask(__name__)
+from urllib.parse import urlencode
+
+app = Flask(__name__)
+CORS(app)
+app.config["DEBUG"] = True 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
 db.init_app(app)
 migrate = Migrate(app, db)
+
+# Ensure sensitive information is loaded from environment variables for security
+INTEGRATION_KEY = "eecfce85-a5eb-4490-b1b9-19caadca2e91"
+PRIVATE_KEY = """-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEAwkRj7bI0eV4hITxGZqOKVq6zCMlbJRb4y+e/Nc82TXYVA2gR
+ZWWsOLommSfZ7SkNXkjU3QlyVcaLF49p3fb4rKGSXEq2L23BmUxbO7enVdocAR7J
+jvSOdFjzpRcF8rluMblpvyi/RSBNHuYpkEVreR/NcHDheJjjHbvKO25teh570Y2Z
+hjqC5mT6e6zJpGod1ZeWYO2KFwIm9xeACZyX3Vo6tf4JWjfcT+Vwo8SFIxhJhfRt
+2d10qzDkdXsVSymza6VAwac9icaxiofzHkJKZREiLW8O0M1B/TkyNGDLyTgM4n7q
+U5w6indWoD3msGqtS2bEhZWvZ5/ItYlE3YuZEQIDAQABAoIBAFAjvWNzldERgzI+
+Nr6lrW5n4CR6SDbLPLSFNCyDACBBW5bNqgt9v2ehZ0XcGjsLKeAgxGswt/Fpl7yO
+5XnzJY+1kXawPWrgaLKQPLysXQP+F3pg1H48Jb4aadxLXKFOXIZ3ugdpTEo8coQS
+J8hD0vujInFFp8XDsEF2VA1jVxc+Xw627kUK3JuYPcSGRYuYmmguriLiYCGUg2Ei
+Ry0/lpcvliuFgXV25vMKojO1il434zB+WJJze1Xm8XNmTldXwjg5KLtHcPVDiIdn
+qTPAy08jAyNBDb0z4ZeNyhQReLq//w/2hC6qaFGYsTXP5Yl9d6BIFvawL/z4ckBi
+5o2LGlcCgYEA4NQukHpDWg6WtXeEB0rwXVDeQXYeCilYWh9iZDy2K/obraaaU6En
+svKmbufuF4OdjJ4zWvpW6usywdAVKXcXkRXU2tPgGMY0kH2OqYSwjbi9E6bZP3jx
+uQOWAhwS5RnZAS3P4Xpd2uw5QJjF+Sx+p+0NlEtAjg3snE5eXfywlJsCgYEA3TN8
+orvulXtKPU0btwVk2CjwlweGeDw2VwSfUAunUQzCdyg/r2NuZyZz6aVhJ02xaIJJ
+2ALGBAi9mvOdWIznx09Az2jg35rdEHKDXSiyzpgNVuPpAAtzZ/PX8X3lpiRb6JSv
+54LbWLXfVM8OQnLpKjqoVnOjP4RpG/w7fMmwJcMCgYEAlvOfd/2+7t5QrfJawRK9
+o8nCEC2gKa5s1cWwqCBjJ8+7ebIcd/4By5JD0L8ECuGhjGJDlNf0N7JG1/4/1yFQ
+v2brDSmokrmxXToP6R1f9SeOO32Q657mnRQdSblTrmLWYoZBxuAD2BM2tXpdodkQ
+COuObHzCER6kOKYdkfkxDfUCgYBCwUEB03li/zweV+DfUO9oFKLW0VyReIplpG13
+uKyb1x/w2eKuSXGOC5q7jj9NnzLE+VzTpbKgkQq3coGvsYZZLd+/OEV09cV1Kznd
+qWSc2GJeMJWmf84qNvqaVIYzp5FdFVIoqeMMWIa3j20cPJWFOwKGZIuFpa4a1foV
+5MAWBQKBgQCiWbiqxeQLzKtXDVJv8DJl5aWfaCGDMIxEUTSybGXx2WR0m9XOdZ/s
+eBrPloQG1QM66/iR9fA5laHadU4ScxZdHYxyyGuxt7z3nZBOHXP9LW1QCK8ya+v+
+NICxYDcUM3KzYYIvTcWftY5UPR7MrF38VwM79cqiriIxFed2eqDynw==
+-----END RSA PRIVATE KEY-----"""
+
+USER_ID = "03b9ea64-6bb7-44f7-8e3e-e72a488fc263"
+
+SIGNER_EMAIL = "hosea.mungai@student.moringaschool.com"
+SIGNER_NAME = "Hosea Mungai"
+ACCOUNT_ID = "42bbd9e3-c44f-4856-9656-fd02cdde6cd7"
+RETURN_URL = "http://localhost:4200/signed"
+AUTH_SERVER = "account-d.docusign.com"
+CLIENT_USER_ID = "03b9ea64-6bb7-44f7-8e3e-e72a488fc263"
+TOKEN_EXPIRATION_IN_SECONDS = 3600
+print("Private Key:", PRIVATE_KEY) 
+# Step 1: Generate Consent URL
+from urllib.parse import urlencode
+
+def generate_consent_url():
+    base_url = f"https://{AUTH_SERVER}/oauth/auth"
+    params = {
+        "response_type": "code",
+        "scope": "signature impersonation",
+        "client_id": INTEGRATION_KEY,
+        "redirect_uri": RETURN_URL
+    }
+    return f"{base_url}?{urlencode(params)}"
+
+# Step 2: Get Access Token (if consent is granted)
+def get_access_token():
+    api_client = ApiClient()
+    try:
+        token_response = api_client.request_jwt_user_token(
+            client_id=INTEGRATION_KEY,
+            user_id=USER_ID,
+            oauth_host_name=AUTH_SERVER,
+            private_key_bytes=PRIVATE_KEY.encode("utf-8"),
+            expires_in=TOKEN_EXPIRATION_IN_SECONDS,
+            scopes=["signature", "impersonation"]
+        )
+        return token_response.access_token
+    except ApiException as e:
+        if "consent_required" in str(e.body):
+            consent_url = generate_consent_url()
+            raise Exception(f"Consent required. Visit this URL: {consent_url}")
+        else:
+            raise
+
+
 @app.route('/documents', methods=['GET', 'POST'])
 def get_documents():
     if request.method == 'GET':
         documents = Documents.query.all()
         return jsonify([document.to_dict() for document in documents]), 200
     if request.method == 'POST':
-        
         name = request.form.get('name')
         document = request.files.get('document')
         type = request.form.get('type')
@@ -25,9 +106,111 @@ def get_documents():
         db.session.add(document)
         db.session.commit()
         return jsonify({"message": "Document created successfully"}), 201
+
+@app.route("/create-envelope", methods=["POST"])
+def create_envelope_route():
+    return create_envelope()
+def authenticate_docusign():
+    access_token = get_access_token()
+    api_client = ApiClient()
+    api_client.set_default_header("Authorization", f"Bearer {access_token}")
+    user_info = api_client.get_user_info(access_token)
+    account_info = next((acc for acc in user_info.accounts if acc.is_default), None)
+
+    return {
+        "access_token": access_token,
+        "account_id": account_info.account_id,
+        "base_path": account_info.base_uri + "/restapi"
+    }
+
+def create_envelope():
+    try:
+        # Get token and account info
+        token_info = authenticate_docusign()
+        access_token = token_info["access_token"]
+        account_id = token_info["account_id"]
+
+        # Setup DocuSign API client with the token
+        api_client = ApiClient()
+        api_client.host = token_info["base_path"]
+        api_client.set_default_header("Authorization", f"Bearer {access_token}")
+
+        envelopes_api = EnvelopesApi(api_client)
+
+        # Build the envelope
+        data = request.get_json()
+        base64_content = data.get("base64Content")
+        filename = data.get("filename", "document.pdf")
+
+        if not base64_content:
+            return jsonify({"error": "Missing base64Content"}), 400
+
+        # Construct envelope definition
+        document = Document(
+            document_base64=base64_content,
+            name=filename,
+            file_extension="pdf",
+            document_id="1",
+        )
+
+        signer = Signer(
+            email=SIGNER_EMAIL,
+            name=SIGNER_NAME,
+            recipient_id="1",
+            routing_order="1",
+            client_user_id=CLIENT_USER_ID
+        )
+
+        sign_here = SignHere(
+            anchor_string="/sn1/",
+            anchor_units="pixels",
+            anchor_x_offset="20",
+            anchor_y_offset="10",
+        )
+
+        tabs = Tabs(sign_here_tabs=[sign_here])
+        signer.tabs = tabs
+
+        envelope_definition = EnvelopeDefinition(
+            email_subject="Please sign this document",
+            documents=[document],
+            recipients=Recipients(signers=[signer]),
+            status="sent",
+        )
+
+        # Create the envelope
+        envelope_summary = envelopes_api.create_envelope(account_id, envelope_definition=envelope_definition)
+        app.logger.debug("Envelope Summary:", envelope_summary)
+
+        # Generate the recipient view URL (signing URL)
+        recipient_view_request = RecipientViewRequest(
+            return_url=RETURN_URL,
+            authentication_method="email",
+            email=SIGNER_EMAIL,
+            user_name=SIGNER_NAME,
+            client_user_id=CLIENT_USER_ID,
+        )
+
+        # Get the signing URL
+        view_url = envelopes_api.create_recipient_view(
+    account_id=account_id,
+    envelope_id=envelope_summary.envelope_id,
+    recipient_view_request=recipient_view_request
+)
+
+        print("Recipient View URL:", view_url)
+
+        # Return the envelope ID and signing URL
+        return jsonify({
+            "envelope_id": envelope_summary.envelope_id,
+            "url": view_url.url  # Return the signing URL to the frontend
+        })
     
-    
-    
-    
+    except ApiException as e:
+        print("Error:", e)
+        return jsonify({"error": "DocuSign API error", "details": e.body}), e.status
+
+
+
 if __name__ == '__main__':
     app.run(debug=True)
