@@ -1,19 +1,28 @@
-from models import db, Documents
+from models import db, Documents, User
 from docusign_esign import ApiClient, EnvelopesApi, EnvelopeDefinition, Document, Signer, SignHere, Recipients, Tabs, RecipientViewRequest
+
 from flask_migrate import Migrate
 from docusign_esign.client.api_exception import ApiException
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
+import base64
+from dotenv import load_dotenv
 from urllib.parse import urlencode
+from flask_jwt_extended import (
+    JWTManager, create_access_token, jwt_required, get_jwt_identity
+)
 
+load_dotenv()
 app = Flask(__name__)
 CORS(app)
 app.config["DEBUG"] = True 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
+app.config ['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
 db.init_app(app)
 migrate = Migrate(app, db)
+jwt = JWTManager(app)
 
 # Ensure sensitive information is loaded from environment variables for security
 INTEGRATION_KEY = "eecfce85-a5eb-4490-b1b9-19caadca2e91"
@@ -50,7 +59,7 @@ USER_ID = "03b9ea64-6bb7-44f7-8e3e-e72a488fc263"
 SIGNER_EMAIL = "hosea.mungai@student.moringaschool.com"
 SIGNER_NAME = "Hosea Mungai"
 ACCOUNT_ID = "42bbd9e3-c44f-4856-9656-fd02cdde6cd7"
-RETURN_URL = "http://localhost:4200/signed"
+RETURN_URL = "http://localhost:4200/"
 AUTH_SERVER = "account-d.docusign.com"
 CLIENT_USER_ID = "03b9ea64-6bb7-44f7-8e3e-e72a488fc263"
 TOKEN_EXPIRATION_IN_SECONDS = 3600
@@ -125,19 +134,19 @@ def authenticate_docusign():
 
 def create_envelope():
     try:
-        # Get token and account info
+        
         token_info = authenticate_docusign()
         access_token = token_info["access_token"]
         account_id = token_info["account_id"]
 
-        # Setup DocuSign API client with the token
+        
         api_client = ApiClient()
         api_client.host = token_info["base_path"]
         api_client.set_default_header("Authorization", f"Bearer {access_token}")
 
         envelopes_api = EnvelopesApi(api_client)
 
-        # Build the envelope
+       
         data = request.get_json()
         base64_content = data.get("base64Content")
         filename = data.get("filename", "document.pdf")
@@ -145,7 +154,7 @@ def create_envelope():
         if not base64_content:
             return jsonify({"error": "Missing base64Content"}), 400
 
-        # Construct envelope definition
+       
         document = Document(
             document_base64=base64_content,
             name=filename,
@@ -178,11 +187,11 @@ def create_envelope():
             status="sent",
         )
 
-        # Create the envelope
+       
         envelope_summary = envelopes_api.create_envelope(account_id, envelope_definition=envelope_definition)
         app.logger.debug("Envelope Summary:", envelope_summary)
 
-        # Generate the recipient view URL (signing URL)
+        
         recipient_view_request = RecipientViewRequest(
             return_url=RETURN_URL,
             authentication_method="email",
@@ -191,7 +200,7 @@ def create_envelope():
             client_user_id=CLIENT_USER_ID,
         )
 
-        # Get the signing URL
+        
         view_url = envelopes_api.create_recipient_view(
     account_id=account_id,
     envelope_id=envelope_summary.envelope_id,
@@ -200,17 +209,154 @@ def create_envelope():
 
         print("Recipient View URL:", view_url)
 
-        # Return the envelope ID and signing URL
+        
         return jsonify({
             "envelope_id": envelope_summary.envelope_id,
-            "url": view_url.url  # Return the signing URL to the frontend
+            "url": view_url.url  
         })
     
     except ApiException as e:
         print("Error:", e)
         return jsonify({"error": "DocuSign API error", "details": e.body}), e.status
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    name = data.get('name')
+    email = data.get('email')
+    contact = data.get('contact')
+    password = data.get('password')
+    user = User(name=name, email=email, contact=contact, password=password)
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({"message": "User created successfully"}), 201
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+    
+    user = User.query.filter_by(email=email).first()
+    if not user or user.password != password:
+        return jsonify({"error": "Invalid email or password"}), 401
+    
+    access_token = create_access_token(identity=str(user.email))
+    return jsonify({"access_token": access_token}),200
+
+@app.route('/api/docusign/view', methods=['POST'])
+def create_docusign_view():
+    file = request.files.get('file')
+    name = request.form.get('name')
+
+    if not file or not name:
+        return jsonify({"error": "Missing file or name"}), 400
+
+    file_bytes = file.read()
+    file_base64 = base64.b64encode(file_bytes).decode('utf-8')
+
+    
+    token_info = authenticate_docusign()
+    access_token = token_info["access_token"]
+    account_id = token_info["account_id"]
+    base_path = token_info["base_path"]
+
+    api_client = ApiClient()
+    api_client.host = base_path
+    api_client.set_default_header("Authorization", f"Bearer {access_token}")
+
+    envelopes_api = EnvelopesApi(api_client)
+
+    envelope_definition = EnvelopeDefinition(
+        email_subject="Please sign this document",
+        documents=[
+            Document(
+                document_base64=file_base64,
+                name=name,
+                file_extension="pdf",
+                document_id="1"
+            )
+        ],
+        recipients=Recipients(signers=[
+            Signer(
+                email="signer@example.com", 
+                name="John Doe",
+                recipient_id="1",
+                client_user_id="1234",
+                tabs=Tabs(sign_here_tabs=[
+                    SignHere(anchor_string="/sn1/", anchor_units="pixels", anchor_x_offset="0", anchor_y_offset="0")
+                ])
+            )
+        ]),
+        status="sent"
+    )
+
+    envelope = envelopes_api.create_envelope(account_id, envelope_definition=envelope_definition)
+
+    view_request = RecipientViewRequest(
+        authentication_method="none",
+        client_user_id="1234",
+        recipient_id="1",
+        return_url="http://localhost:4200/docusign-return",
+        user_name="John Doe",
+        email="signer@example.com"
+    )
+
+    try:
+        view_url = envelopes_api.create_recipient_view(
+            account_id=account_id,
+            envelope_id=envelope.envelope_id,  # envelope.envelope_id is correct here
+            recipient_view_request=view_request
+        )
+        return jsonify({"url": view_url.url})
+    except ApiException as e:
+        return jsonify({"error": "Error creating recipient view", "details": e.body}), e.status
+
+from docusign_esign import RecipientViewRequest
 
 
+@app.route("/create-sender-view", methods=["POST"])
+def create_sender_view():
+    try:
+        token_info = authenticate_docusign()
+        access_token = token_info["access_token"]
+        account_id = token_info["account_id"]
+        base_path = token_info["base_path"]
+
+        api_client = ApiClient()
+        api_client.host = base_path
+        api_client.set_default_header("Authorization", f"Bearer {access_token}")
+        envelopes_api = EnvelopesApi(api_client)
+
+        
+        file = request.files.get('file')
+        filename = request.form.get('name') or "document.pdf"
+        file_bytes = file.read()
+        file_base64 = base64.b64encode(file_bytes).decode('utf-8')
+
+        
+        envelope_definition = EnvelopeDefinition(
+            email_subject="Please sign this document",
+            documents=[Document(
+                document_base64=file_base64,
+                name=filename,
+                file_extension="pdf",
+                document_id="1"
+            )],
+            status="created"
+        )
+
+        
+        envelope_summary = envelopes_api.create_envelope(account_id, envelope_definition=envelope_definition)
+        envelope_id = envelope_summary.envelope_id
+
+        
+
+        
+        view_url = envelopes_api.create_sender_view(account_id, envelope_id=envelope_id)
+
+        return jsonify({"url": view_url.url})
+
+    except ApiException as e:
+        return jsonify({"error": "DocuSign API error", "details": e.body}), e.status
 
 if __name__ == '__main__':
     app.run(debug=True)
