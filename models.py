@@ -47,8 +47,10 @@ class Projects(db.Model, SerializerMixin):
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.String(255), nullable=True)
     date_created = db.Column(db.DateTime, unique=True, nullable=False, default=datetime.utcnow)
-    assigned_to = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    
+    assigned_to = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    user = db.relationship('User', backref='projects', lazy=True)
+    favorite = db.Column(db.Boolean, default=False, nullable=False)
+    status = db.Column(db.String(255), default='pending', nullable=True)
     # FK to one specific task (e.g., primary task)
     task_id = db.Column(db.Integer, db.ForeignKey('tasks.id'), nullable=True)
     task = db.relationship('Tasks', foreign_keys=[task_id], backref='primary_project', lazy=True)
@@ -61,7 +63,11 @@ class Projects(db.Model, SerializerMixin):
             'id': self.id,
             'name': self.name,
             'description': self.description,
-            'date_created': self.date_created.isoformat()
+            'date_created': self.date_created.isoformat(),
+            'assigned_to': {"id":self.user.id, "name":self.user.name }if self.user else None,
+            'status': self.status,
+            'tasks': [task.name for task in self.tasks],
+            'favorite': self.favorite
         }
 
 class Tasks(db.Model, SerializerMixin):
