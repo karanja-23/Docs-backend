@@ -1,4 +1,4 @@
-from models import db, Documents, User
+from models import db, Documents, User, Projects, Tasks
 from docusign_esign import ApiClient, EnvelopesApi, EnvelopeDefinition, Document, Signer, SignHere, Recipients, Tabs, RecipientViewRequest
 
 from flask_migrate import Migrate
@@ -96,7 +96,37 @@ def get_access_token():
             raise Exception(f"Consent required. Visit this URL: {consent_url}")
         else:
             raise
-
+        
+@app.route('/tasks', methods=['GET', 'POST'])
+def get_tasks():
+    if request.method == 'GET':
+        tasks = Tasks.query.all()
+        return jsonify([task.to_dict() for task in tasks]), 200
+    if request.method == 'POST':
+        name = request.json.get('name')
+        description = request.json.get('description')
+        assigned_to = request.json.get('assigned_to')
+        project_id = request.json.get('project_id')
+        task = Tasks(name=name, description=description, assigned_to=assigned_to, project_id=project_id)        
+        db.session.add(task)
+        db.session.commit()
+        return jsonify({"message": "Task created successfully"}), 201
+   
+@app.route('/projects', methods=['GET', 'POST'])
+def get_projects():
+    if request.method == 'GET':
+        projects = Projects.query.all()
+        return jsonify([project.to_dict() for project in projects]), 200
+    if request.method == 'POST':
+        name = request.json.get('name')
+        description = request.json.get('description')
+        assigned_to = request.json.get('assigned_to')
+        project = Projects(name=name, description=description, assigned_to=assigned_to)
+        db.session.add(project)
+        db.session.commit()
+        return jsonify({"message": "Project created successfully"}), 201
+    
+        
 
 @app.route('/documents', methods=['GET', 'POST'])
 def get_documents():
@@ -242,6 +272,10 @@ def login():
     access_token = create_access_token(identity=str(user.email))
     return jsonify({"access_token": access_token}),200
 
+@app.route('/users', methods=['GET'])
+def get_users():
+    users = User.query.all()
+    return jsonify([user.to_dict() for user in users])
 @app.route('/api/docusign/view', methods=['POST'])
 def create_docusign_view():
     file = request.files.get('file')
