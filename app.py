@@ -126,8 +126,16 @@ def get_projects():
         db.session.commit()
         return jsonify({"message": "Project created successfully"}), 201
     
-        
-
+@app.route('/project/<int:project_id>', methods=['GET'])
+def get_project(project_id):
+    project = Projects.query.get(project_id)
+    return jsonify(project.to_dict()), 200       
+@app.route('/toggleFavorite/<int:task_id>', methods=['POST'])
+def toggle_favorite(task_id):
+    project = Projects.query.get(task_id)
+    project.favorite = not project.favorite
+    db.session.commit()
+    return jsonify({"message": "Favorite status toggled successfully"}), 200
 @app.route('/documents', methods=['GET', 'POST'])
 def get_documents():
     if request.method == 'GET':
@@ -145,6 +153,12 @@ def get_documents():
         db.session.add(document)
         db.session.commit()
         return jsonify({"message": "Document created successfully"}), 201
+@app.route('/document/<int:document_id>', methods=['GET'])
+def get_document(document_id):
+    document = Documents.query.get(document_id)
+    if not document:
+        return jsonify({"message": "Document not found"}), 404
+    return jsonify(document.to_dict()), 200
 
 @app.route("/create-envelope", methods=["POST"])
 def create_envelope_route():

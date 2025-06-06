@@ -49,7 +49,7 @@ class Projects(db.Model, SerializerMixin):
     date_created = db.Column(db.DateTime, unique=True, nullable=False, default=datetime.utcnow)
     assigned_to = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     user = db.relationship('User', backref='projects', lazy=True)
-    favorite = db.Column(db.Boolean, default=False, nullable=False)
+    favorite = db.Column(db.Boolean, default=False, nullable=True)
     status = db.Column(db.String(255), default='pending', nullable=True)
     # FK to one specific task (e.g., primary task)
     task_id = db.Column(db.Integer, db.ForeignKey('tasks.id'), nullable=True)
